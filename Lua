@@ -6,107 +6,112 @@
  █ ████      ███████ ███████ ██   ████ ██      ██ 
                                                   
                                                   
-
-local UIS = game:GetService("UserInputService") -- made by @l2nm (severin)
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+local UserInput = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local StarterGui = game:GetService("StarterGui")
+
 
 local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Mouse = LocalPlayer:GetMouse()
-local Camera = game.Workspace.CurrentCamera
-local AimlockButton = script.Parent:WaitForChild("Aimlock")
-
--- you can edit this 
-local Epitaph = 0.234
-local HeadOffset = Vector3.new(0, 0.1, 0)
-local AimPart = "HumanoidRootPart"
-local CircleRadius = 200
-local CircleColor = Color3.fromRGB(255, 0, 130)
-local CircleThickness = 1
-local CircleSides = 64
-local CircleFilled = false
-local CircleVisible = true
-local CircleTransparency = 0
+local Camera = Workspace.CurrentCamera
 
 
+local PredictionPower = 0.234
+local Offset = Vector3.new(0, 0.1, 0)
+
+_G.AimPart = "HumanoidRootPart"
+_G.TeamCheck = false
+_G.FOV = 200
+_G.FOVColor = Color3.fromRGB(255, 0, 130)
+_G.FOVSides = 64
+_G.FOVTransparency = 0
+_G.FOVFilled = false
+_G.FOVVisible = true
+_G.FOVThickness = 1
+
+--// FOV Circle Setup
 local FOVCircle = Drawing.new("Circle")
 FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-FOVCircle.Radius = CircleRadius
-FOVCircle.Color = CircleColor
-FOVCircle.Thickness = CircleThickness
-FOVCircle.NumSides = CircleSides
-FOVCircle.Filled = CircleFilled
-FOVCircle.Visible = CircleVisible
-FOVCircle.Transparency = CircleTransparency
+FOVCircle.Radius = _G.FOV
+FOVCircle.Filled = _G.FOVFilled
+FOVCircle.Color = _G.FOVColor
+FOVCircle.Visible = _G.FOVVisible
+FOVCircle.Transparency = _G.FOVTransparency
+FOVCircle.NumSides = _G.FOVSides
+FOVCircle.Thickness = _G.FOVThickness
 
 
-local isAimlockActive = false
-local isHoldingMouseButton = false
+local IsAiming = false
+local TargetLocked = false
 
 
-local function lockCursor()
-    UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+local function LockCursor()
+	UserInput.MouseBehavior = Enum.MouseBehavior.LockCenter
 end
 
-local function unlockCursor()
-    UIS.MouseBehavior = Enum.MouseBehavior.Default
-    isAimlockActive = false
-    isHoldingMouseButton = false
+local function UnlockCursor()
+	IsAiming = false
+	TargetLocked = false
+	UserInput.MouseBehavior = Enum.MouseBehavior.Default
 end
 
-local function findNearestPlayer()
-    local closestPlayer = nil
-    local shortestDistance = math.huge
 
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                local screenPos, visible = Camera:WorldToViewportPoint(player.Character[AimPart].Position)
-                if visible then
-                    local distance = (Vector2.new(Mouse.X, Mouse.Y) - Vector2.new(screenPos.X, screenPos.Y)).Magnitude
-                    if distance < shortestDistance and distance < CircleRadius then
-                        shortestDistance = distance
-                        closestPlayer = player.Character
-                    end
-                end
-            end
-        end
-    end
-    return closestPlayer
+local function GetClosestTarget()
+	local closestPlayer, shortestDistance = nil, math.huge
+
+	for _, player in pairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
+			local humanoid = player.Character:FindFirstChild("Humanoid")
+			local rootPart = player.Character:FindFirstChild(_G.AimPart)
+
+			if humanoid and humanoid.Health > 0 and rootPart then
+				local screenPos, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+				local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+				local targetPos = Vector2.new(screenPos.X, screenPos.Y)
+
+				local distance = (mousePos - targetPos).Magnitude
+				if onScreen and distance < shortestDistance and distance < _G.FOV then
+					shortestDistance = distance
+					closestPlayer = player.Character
+				end
+			end
+		end
+	end
+
+	return closestPlayer
 end
 
-local function onAimlockButtonClicked()
-    isAimlockActive = not isAimlockActive
-    if isAimlockActive then
-        isHoldingMouseButton = true
-        lockCursor()
-        RunService.RenderStepped:Connect(function()
-            if isHoldingMouseButton then
-                local target = findNearestPlayer()
-                if target then
-                    local predictedPosition = target[AimPart].Position + (target[AimPart].Velocity * Epitaph + HeadOffset)
-                    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPosition)
-                end
-            end
-        end)
-    else
-        unlockCursor()
-    end
-end
 
--- Connections
-AimlockButton.MouseButton1Click:Connect(onAimlockButtonClicked)
+UserInput.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		IsAiming = true
+		TargetLocked = true
 
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        unlockCursor()
-    end
+		local target = GetClosestTarget()
+
+		while IsAiming do
+			task.wait()
+
+			if TargetLocked and target and target:FindFirstChild("HumanoidRootPart") then
+				local futurePos = target.HumanoidRootPart.CFrame + (target.HumanoidRootPart.Velocity * PredictionPower + Offset)
+				Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, futurePos.Position)
+				LockCursor()
+			end
+		end
+	end
 end)
 
+UserInput.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		UnlockCursor()
+	end
+end)
 
-game.StarterGui:SetCore("SendNotification", {
-    Title = "script chairto", -- aq rac ginda daawere
-    Text = "auwvi exla xalxs ha.", -- aqac
-    Duration = 4,
+                   
+StarterGui:SetCore("SendNotification", {
+	Title = "AimLock", -- es shegidzlia shecvalo
+	Text = "Script loaded successfully!", -- esec
+	Duration = 4
 })
